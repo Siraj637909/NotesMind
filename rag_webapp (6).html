@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>NotesMind — RAG Study Assistant</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a26;
+    --border: #2a2a3d;
+    --accent: #7c6aff;
+    --accent2: #ff6a9a;
+    --text: #e8e8f0;
+    --muted: #6b6b8a;
+    --success: #4ade80;
+    --radius: 14px;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    overflow: hidden;
+  }
+
+  /* Background grain */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.4;
+  }
+
+  /* Ambient glow blobs */
+  .blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .blob-1 { width: 500px; height: 500px; background: rgba(124,106,255,0.08); top: -150px; right: -100px; }
+  .blob-2 { width: 400px; height: 400px; background: rgba(255,106,154,0.06); bottom: -100px; left: -100px; }
+
+  /* Layout */
+  #app {
+    position: relative;
+    z-index: 1;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  header {
+    padding: 18px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,10,15,0.8);
+    backdrop-filter: blur(12px);
+    flex-shrink: 0;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+
+  .logo span { color: var(--accent); }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* Status badge */
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+    padding: 5px 12px;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    background: var(--surface);
+  }
+
+  .status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+
+  .status-dot.ready { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .status-dot.loading { background: var(--accent); animation: pulse 1s infinite; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* Main body */
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    overflow: hidden;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 24px 20px;
+    gap: 24px;
+  }
+
+  .section-label {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  /* Input field */
+  .input-group { display: flex; flex-direction: column; gap: 8px; }
+
+  input[type="password"], input[type="text"] {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 11px 14px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(124,106,255,0.15);
+  }
+
+  input::placeholder { color: var(--muted); }
+
+  /* Upload zone */
+  .upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 28px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--surface2);
+    position: relative;
+  }
+
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(124,106,255,0.05);
+  }
+
+  .upload-zone input[type="file"] {
+    position: absolute; inset: 0;
+    opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+
+  .upload-icon { font-size: 28px; margin-bottom: 8px; }
+
+  .upload-zone p {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .upload-zone strong { color: var(--text); }
+
+  /* File info */
+  .file-info {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: rgba(124,106,255,0.1);
+    border: 1px solid rgba(124,106,255,0.3);
+    border-radius: var(--radius);
+    font-size: 13px;
+  }
+
+  .file-info.show { display: flex; }
+  .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Progress bar */
+  .progress-wrap {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .progress-wrap.show { display: flex; }
+
+  .progress-bar-bg {
+    height: 4px;
+    background: var(--surface2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.3s;
+  }
+
+  .progress-text { font-size: 12px; color: var(--muted); }
+
+  /* Process button */
+  .btn {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: var(--radius);
+    font-family: 'Syne', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), #6051e0);
+    color: white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(124,106,255,0.3);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  /* Stats */
+  .stats {
+    display: none;
+    gap: 8px;
+    flex-direction: column;
+  }
+
+  .stats.show { display: flex; }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    padding: 8px 12px;
+    background: var(--surface2);
+    border-radius: 8px;
+  }
+
+  .stat-row span:first-child { color: var(--muted); }
+  .stat-row span:last-child { color: var(--text); font-weight: 500; }
+
+  /* Chat panel */
+  .chat-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Welcome screen */
+  .welcome {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 40px;
+    text-align: center;
+  }
+
+  .welcome-icon {
+    width: 72px; height: 72px;
+    background: linear-gradient(135deg, rgba(124,106,255,0.2), rgba(255,106,154,0.2));
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 32px;
+    margin-bottom: 8px;
+  }
+
+  .welcome h2 {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+  }
+
+  .welcome p { color: var(--muted); max-width: 340px; font-size: 14px; }
+
+  .steps {
+    display: flex;
+    gap: 12px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .step-num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+
+  /* Messages */
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    scroll-behavior: smooth;
+  }
+
+  .messages::-webkit-scrollbar { width: 4px; }
+  .messages::-webkit-scrollbar-track { background: transparent; }
+  .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .msg {
+    display: flex;
+    gap: 12px;
+    animation: fadeUp 0.3s ease;
+    max-width: 720px;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .msg.user { flex-direction: row-reverse; align-self: flex-end; }
+
+  .msg-avatar {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+
+  .msg.user .msg-avatar { background: linear-gradient(135deg, var(--accent), var(--accent2)); }
+  .msg.ai .msg-avatar { background: var(--surface2); border: 1px solid var(--border); }
+
+  .msg-bubble {
+    padding: 12px 16px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.65;
+    max-width: 580px;
+  }
+
+  .msg.user .msg-bubble {
+    background: linear-gradient(135deg, var(--accent), #6051e0);
+    color: white;
+    border-bottom-right-radius: 4px;
+  }
+
+  .msg.ai .msg-bubble {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-bottom-left-radius: 4px;
+  }
+
+  /* Typing indicator */
+  .typing {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 14px 18px;
+  }
+
+  .typing-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    animation: bounce 1.2s infinite;
+  }
+
+  .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes bounce {
+    0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)}
+  }
+
+  /* Input bar */
+  .input-bar {
+    padding: 16px 24px;
+    border-top: 1px solid var(--border);
+    background: rgba(10,10,15,0.8);
+    backdrop-filter: blur(12px);
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    flex-shrink: 0;
+  }
+
+  .question-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    outline: none;
+    resize: none;
+    max-height: 120px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    line-height: 1.5;
+  }
+
+  .question-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(124,106,255,0.15);
+  }
+
+  .question-input::placeholder { color: var(--muted); }
+
+  .send-btn {
+    width: 44px; height: 44px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent), #6051e0);
+    color: white;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+
+  .send-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(124,106,255,0.4);
+  }
+
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Error toast */
+  .toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #ff4444;
+    color: white;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    z-index: 100;
+    display: none;
+    animation: fadeUp 0.3s ease;
+    max-width: 300px;
+  }
+
+  .toast.show { display: block; }
+
+  /* Scrollbar */
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+
+<div id="app">
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">📚</div>
+      Notes<span>Mind</span>
+    </div>
+    <div class="header-right">
+      <div class="status-badge">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Not ready</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <div class="main">
+    <!-- Sidebar -->
+    <div class="sidebar">
+
+      <!-- API Key -->
+      <div>
+        <div class="section-label">Gemini API Key</div>
+        <div class="input-group">
+          <input type="password" id="apiKey" placeholder="AIza...your key here" />
+        </div>
+      </div>
+
+      <!-- Upload -->
+      <div>
+        <div class="section-label">Upload Notes</div>
+        <div class="upload-zone" id="uploadZone">
+          <input type="file" id="fileInput" accept=".pdf" />
+          <div class="upload-icon">📄</div>
+          <p><strong>Click or drag</strong> your PDF here</p>
+          <p style="margin-top:4px; font-size:12px;">College notes, textbooks, slides</p>
+        </div>
+        <div class="file-info" id="fileInfo">
+          <span>📄</span>
+          <span class="file-name" id="fileName">—</span>
+        </div>
+      </div>
+
+      <!-- Progress -->
+      <div class="progress-wrap" id="progressWrap">
+        <div class="section-label">Indexing Notes</div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-text" id="progressText">Starting...</div>
+      </div>
+
+      <!-- Process Button -->
+      <button class="btn btn-primary" id="processBtn" disabled>
+        ⚡ Index My Notes
+      </button>
+
+      <!-- Stats -->
+      <div class="stats" id="stats">
+        <div class="section-label">Notes Stats</div>
+        <div class="stat-row">
+          <span>Chunks indexed</span>
+          <span id="statChunks">—</span>
+        </div>
+        <div class="stat-row">
+          <span>File size</span>
+          <span id="statSize">—</span>
+        </div>
+        <div class="stat-row">
+          <span>Status</span>
+          <span style="color: var(--success)">✓ Ready</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Chat Panel -->
+    <div class="chat-panel" id="chatPanel">
+
+      <!-- Welcome -->
+      <div class="welcome" id="welcome">
+        <div class="welcome-icon">🧠</div>
+        <h2>Your AI Study Assistant</h2>
+        <p>Upload your college notes and ask anything. I'll find answers directly from your material.</p>
+        <div class="steps">
+          <div class="step"><div class="step-num">1</div> Add API key</div>
+          <div class="step"><div class="step-num">2</div> Upload PDF</div>
+          <div class="step"><div class="step-num">3</div> Ask questions</div>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div class="messages" id="messages" style="display:none;"></div>
+
+      <!-- Input bar -->
+      <div class="input-bar" id="inputBar" style="display:none;">
+        <textarea class="question-input" id="questionInput" placeholder="Ask anything from your notes... (Enter to send)" rows="1"></textarea>
+        <button class="send-btn" id="sendBtn" disabled>➤</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- PDF.js for reading PDFs in browser -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<script>
+// ─── PDF.js Setup ───────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ─── State ──────────────────────────────────────────────────────
+let chunks = [];
+let chunkEmbeddings = [];
+let isProcessing = false;
+let isAnswering = false;
+
+// ─── DOM refs ───────────────────────────────────────────────────
+const apiKeyInput   = document.getElementById('apiKey');
+const fileInput     = document.getElementById('fileInput');
+const uploadZone    = document.getElementById('uploadZone');
+const fileInfo      = document.getElementById('fileInfo');
+const fileNameEl    = document.getElementById('fileName');
+const processBtn    = document.getElementById('processBtn');
+const progressWrap  = document.getElementById('progressWrap');
+const progressFill  = document.getElementById('progressFill');
+const progressText  = document.getElementById('progressText');
+const statsEl       = document.getElementById('stats');
+const statChunks    = document.getElementById('statChunks');
+const statSize      = document.getElementById('statSize');
+const statusDot     = document.getElementById('statusDot');
+const statusText    = document.getElementById('statusText');
+const welcome       = document.getElementById('welcome');
+const messages      = document.getElementById('messages');
+const inputBar      = document.getElementById('inputBar');
+const questionInput = document.getElementById('questionInput');
+const sendBtn       = document.getElementById('sendBtn');
+const toast         = document.getElementById('toast');
+
+// ─── Helpers ────────────────────────────────────────────────────
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+function setStatus(state) {
+  statusDot.className = 'status-dot ' + state;
+  const labels = { '': 'Not ready', ready: 'Ready', loading: 'Processing...' };
+  statusText.textContent = labels[state] || state;
+}
+
+function getCleanKey() {
+  // Strip all whitespace, newlines, invisible chars
+  return apiKeyInput.value.replace(/\s+/g, '').replace(/[^\x20-\x7E]/g, '').trim();
+}
+
+function checkProcessReady() {
+  processBtn.disabled = !(getCleanKey() && fileInput.files[0]);
+}
+
+// ─── File Select ────────────────────────────────────────────────
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  fileNameEl.textContent = file.name;
+  fileInfo.classList.add('show');
+  statSize.textContent = (file.size / 1024).toFixed(0) + ' KB';
+  checkProcessReady();
+});
+
+apiKeyInput.addEventListener('input', checkProcessReady);
+
+// Drag & Drop
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type === 'application/pdf') {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    fileInput.files = dt.files;
+    fileInput.dispatchEvent(new Event('change'));
+  }
+});
+
+// ─── Extract text from PDF using PDF.js ─────────────────────────
+async function extractPDFText(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map(item => item.str).join(' ');
+    fullText += pageText + '\n';
+  }
+  return fullText;
+}
+
+// ─── Chunking ───────────────────────────────────────────────────
+function chunkText(text, chunkSize = 400, overlap = 60) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const result = [];
+  let i = 0;
+  while (i < words.length) {
+    result.push(words.slice(i, i + chunkSize).join(' '));
+    i += chunkSize - overlap;
+  }
+  return result;
+}
+
+
+
+// ─── Keyword Search (no embedding API needed) ────────────────────
+function scoreChunk(chunk, question) {
+  const qWords = question.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const cLower = chunk.toLowerCase();
+  let score = 0;
+  for (const word of qWords) {
+    const count = (cLower.match(new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length;
+    score += count;
+  }
+  return score;
+}
+
+function topChunks(question, allChunks, k = 5) {
+  return allChunks
+    .map(c => ({ c, score: scoreChunk(c, question) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k)
+    .map(x => x.c);
+}
+
+// ─── Gemini Generate ─────────────────────────────────────────────
+async function askGemini(question, contextChunks, apiKey) {
+  const context = contextChunks.join('\n\n---\n\n');
+  const prompt = `You are a helpful study assistant. Answer the student's question using ONLY the notes provided below.
+If the answer is not in the notes, say: "I couldn't find this in your notes."
+Keep answers clear, concise, and student-friendly.
+
+NOTES:
+${context}
+
+QUESTION: ${question}
+
+ANSWER:`;
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    }
+  );
+
+  if (!res.ok) throw new Error('Gemini API error: ' + (await res.text()));
+  const data = await res.json();
+  return data.candidates[0].content.parts[0].text;
+}
+
+// ─── Process Button ──────────────────────────────────────────────
+processBtn.addEventListener('click', async () => {
+  if (isProcessing) return;
+  const apiKey = getCleanKey();
+  const file = fileInput.files[0];
+  if (!apiKey || !file) return;
+
+  isProcessing = true;
+  processBtn.disabled = true;
+  setStatus('loading');
+  progressWrap.classList.add('show');
+  statsEl.classList.remove('show');
+  chunks = []; chunkEmbeddings = [];
+
+  try {
+    // Extract
+    progressText.textContent = 'Reading PDF...';
+    progressFill.style.width = '5%';
+    const text = await extractPDFText(file);
+
+    if (!text.trim()) throw new Error('Could not extract text from this PDF.');
+
+    // Chunk
+    progressText.textContent = 'Splitting into sections...';
+    progressFill.style.width = '50%';
+    chunks = chunkText(text);
+
+    progressFill.style.width = '100%';
+    progressText.textContent = 'Done!';
+    statChunks.textContent = chunks.length;
+    statsEl.classList.add('show');
+    setStatus('ready');
+
+    // Show chat
+    welcome.style.display = 'none';
+    messages.style.display = 'flex';
+    inputBar.style.display = 'flex';
+    sendBtn.disabled = false;
+
+    addMessage('ai', `✅ I've indexed **${chunks.length}** sections from **${file.name}**. Ask me anything about your notes!`);
+
+  } catch (err) {
+    showToast('Error: ' + err.message);
+    setStatus('');
+    progressWrap.classList.remove('show');
+    processBtn.disabled = false;
+  } finally {
+    isProcessing = false;
+  }
+});
+
+// ─── Add message to chat ─────────────────────────────────────────
+function addMessage(role, text) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar';
+  avatar.textContent = role === 'user' ? '👤' : '🧠';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.textContent = text;
+
+  div.appendChild(avatar);
+  div.appendChild(bubble);
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+  return div;
+}
+
+function addTyping() {
+  const div = document.createElement('div');
+  div.className = 'msg ai';
+  div.id = 'typing';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'msg-avatar';
+  avatar.textContent = '🧠';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble typing';
+  bubble.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+
+  div.appendChild(avatar);
+  div.appendChild(bubble);
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function removeTyping() {
+  const t = document.getElementById('typing');
+  if (t) t.remove();
+}
+
+// ─── Send question ───────────────────────────────────────────────
+async function sendQuestion() {
+  const question = questionInput.value.trim();
+  if (!question || isAnswering || chunks.length === 0) return;
+
+  const apiKey = getCleanKey();
+  isAnswering = true;
+  sendBtn.disabled = true;
+  questionInput.value = '';
+  questionInput.style.height = 'auto';
+
+  addMessage('user', question);
+  addTyping();
+
+  try {
+    const relevant = topChunks(question, chunks, 5);
+    const answer = await askGemini(question, relevant, apiKey);
+    removeTyping();
+    addMessage('ai', answer);
+  } catch (err) {
+    removeTyping();
+    addMessage('ai', '⚠️ Error: ' + err.message);
+  } finally {
+    isAnswering = false;
+    sendBtn.disabled = false;
+    questionInput.focus();
+  }
+}
+
+sendBtn.addEventListener('click', sendQuestion);
+
+questionInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuestion(); }
+});
+
+// Auto-resize textarea
+questionInput.addEventListener('input', () => {
+  questionInput.style.height = 'auto';
+  questionInput.style.height = Math.min(questionInput.scrollHeight, 120) + 'px';
+});
+</script>
+</body>
+</html>
